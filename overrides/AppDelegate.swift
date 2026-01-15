@@ -11,7 +11,7 @@ import AudioToolbox
     var eqNode: AVAudioUnitEQ!
     var pitchNode: AVAudioUnitTimePitch!
     var distortionNode: AVAudioUnitDistortion!
-    var dynamicsNode: AVFoundation.AVAudioUnitDynamicsProcessor!
+    var dynamicsNode: AVAudioUnitEffect! // Changed to generic effect to bypass missing iOS header
     var reverbNode: AVAudioUnitReverb!
     
     let synthesizer = AVSpeechSynthesizer()
@@ -62,8 +62,20 @@ import AudioToolbox
         eqNode = AVAudioUnitEQ(numberOfBands: 3)
         pitchNode = AVAudioUnitTimePitch()
         distortionNode = AVAudioUnitDistortion()
-        dynamicsNode = AVFoundation.AVAudioUnitDynamicsProcessor()
         reverbNode = AVAudioUnitReverb()
+        
+        // --- COMPONENT-BASED DYNAMICS (The Build Fix) ---
+        // Since AVAudioUnitDynamicsProcessor is sometimes hidden in iOS headers,
+        // we initialize it via its component description.
+        let desc = AudioComponentDescription(
+            componentType: kAudioUnitType_Effect,
+            componentSubType: kAudioUnitSubType_DynamicsProcessor,
+            componentManufacturer: kAudioUnitManufacturer_Apple,
+            componentFlags: 0,
+            componentFlagsMask: 0
+        )
+        
+        dynamicsNode = AVAudioUnitEffect(audioComponentDescription: desc)
         
         // --- DSP Settings: "Human Presence" Profile ---
         
@@ -89,22 +101,29 @@ import AudioToolbox
         band3.frequency = 8500.0
         band3.gain = 1.5 
         
-        // 3. SPATIAL GLUE (The "Vacuum" Fix)
-        // A very subtle reverb to simulate a physical room.
+        // 3. SPATIAL GLUE
         reverbNode.loadFactoryPreset(.smallRoom)
-        reverbNode.wetDryMix = 7.0 // Barely there tail
+        reverbNode.wetDryMix = 7.0 
         
-        // 4. GLUE COMPRESSION
-        dynamicsNode.threshold = -24.0
-        dynamicsNode.headroom = 4.0
-        dynamicsNode.expansionRatio = 3.0
-        dynamicsNode.masterGain = 2.0 
+        // 4. GLUE COMPRESSION (Manual Parameter Mapping)
+        // Parameter IDs for Dynamics Processor: 0:Threshold, 1:Headroom, 2:ExpansionRatio, 3:ExpansionThreshold, 4:AttackTime, 5:ReleaseTime, 6:MasterGain
+        if let au = dynamicsNode.auAudioUnit.fullState, var dict = au as? [String: Any] {
+            // These might not be directly settable via dict depending on SDK, so we use the AUParameterTree if possible
+        }
+        
+        // Fallback to standard parameter tree access
+        if let tree = dynamicsNode.auAudioUnit.parameterTree {
+            tree.parameter(withAddress: 0)?.value = -24.0 // Threshold
+            tree.parameter(withAddress: 1)?.value = 4.0   // Headroom
+            tree.parameter(withAddress: 2)?.value = 3.0   // Expansion Ratio
+            tree.parameter(withAddress: 6)?.value = 2.0   // Master Gain
+        }
         
         // 5. PITCH & RATE
         pitchNode.pitch = -0.5
         pitchNode.rate = 1.04 
         
-        // Attach Nodes
+        // Attach & Connect
         engine.attach(playerNode)
         engine.attach(pitchNode)
         engine.attach(distortionNode)
@@ -112,7 +131,6 @@ import AudioToolbox
         engine.attach(reverbNode)
         engine.attach(dynamicsNode)
         
-        // Connect Chain: Player -> Pitch -> Distortion -> EQ -> Reverb -> Dynamics -> Output
         engine.connect(playerNode, to: pitchNode, format: format)
         engine.connect(pitchNode, to: distortionNode, format: format)
         engine.connect(distortionNode, to: eqNode, format: format)
