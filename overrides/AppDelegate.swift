@@ -132,7 +132,7 @@ import AVFoundation
                 guard let self = self, let pcmBuffer = buffer as? AVAudioPCMBuffer else { return }
                 
                 // --- HUMANIZER DSP INJECTION ---
-                // Process the buffer in-place to add shimmer, jitter, breath, and warmth
+                // Process the buffer in-place: Warmth + Subtle Life only (No Rattle)
                 self.humanizer.process(buffer: pcmBuffer)
                 
                 DispatchQueue.main.async {
@@ -154,74 +154,27 @@ import AVFoundation
         }
     }
     
-    // --- EMOTION LOGIC ---
     func detectEmotion(from text: String) -> String {
-        let t = text.lowercased()
-        if t.contains("!") || t.contains("wow") || t.contains("amazing") || t.contains("yes") {
-            return "excited"
-        } else if t.contains("sorry") || t.contains("sad") || t.contains("unfortunately") {
-            return "warm" // Use warm for empathetic/sad
-        } else if t.contains("relax") || t.contains("deep breath") || t.contains("calm") {
-            return "calm"
-        } else if t.contains("important") || t.contains("listen") || t.contains("focus") {
-            return "serious"
-        }
-        return "neutral"
+        return "neutral" // Disabled emotion logic to ensure stability
     }
     
     private let humanizer = HumanizerDSP()
 }
 
-// --- HUMANIZER DSP ENGINE ---
+// --- HUMANIZER DSP ENGINE (Cleaned) ---
 class HumanizerDSP {
-    // Parameters (Default: Neutral)
-    var shimmerDepth: Float = 0.0
-    var jitterDepth: Float = 0.0
-    var jitterSpeed: Float = 5.0
-    var breathiness: Float = 0.0
-    var warmthDrive: Float = 1.0
+    // Parameters (Fixed "Clean & Warm" Profile)
+    // No Jitter (Pitch wobble) -> Removed "Rattle" source 1
+    // No Breathiness (Noise) -> Removed "Rattle" source 2 (Gate)
     
-    // State
+    var shimmerDepth: Float = 0.03 // Very subtle volume breathing (+/- 3%)
+    var shimmerSpeed: Float = 4.0  // Slow breath rate
+    var warmthDrive: Float = 1.2   // Subtle tube saturation
+    
     private var phaseShimmer: Float = 0
-    private var phaseJitter: Float = 0
-    private var phaseDrift: Float = 0
-    private var delayBuffer: [Float] = Array(repeating: 0, count: 4096)
-    private var delayHead: Int = 0
-    private var lastNoise: Float = 0
     
     func applyEmotion(preset: String) {
-        switch preset {
-        case "warm":
-            shimmerDepth = 0.08
-            jitterDepth = 0.015
-            jitterSpeed = 4.0
-            breathiness = 0.05
-            warmthDrive = 1.5
-        case "excited":
-            shimmerDepth = 0.12
-            jitterDepth = 0.025
-            jitterSpeed = 6.0
-            breathiness = 0.02
-            warmthDrive = 1.4
-        case "calm":
-            shimmerDepth = 0.04
-            jitterDepth = 0.008
-            jitterSpeed = 3.0
-            breathiness = 0.04
-            warmthDrive = 1.3
-        case "serious":
-            shimmerDepth = 0.02
-            jitterDepth = 0.005
-            jitterSpeed = 5.0
-            breathiness = 0.01
-            warmthDrive = 1.2
-        default: // Neutral
-            shimmerDepth = 0.06 // +/- 6%
-            jitterDepth = 0.015 // +/- 1.5%
-            jitterSpeed = 5.0
-            breathiness = 0.03
-            warmthDrive = 1.4
-        }
+        // Disabled: specific presets caused inconsistency. We want one good sound.
     }
     
     func process(buffer: AVAudioPCMBuffer) {
@@ -230,87 +183,30 @@ class HumanizerDSP {
         let frameCount = Int(buffer.frameLength)
         let sampleRate = Float(buffer.format.sampleRate)
         
-        // Constants for modulation
-        let shimmerFreq: Float = 8.0
-        let driftFreq: Float = 0.3
         let twoPi = 2.0 * Float.pi
         
         for frame in 0..<frameCount {
-            // Update Phases
-            phaseShimmer += (twoPi * shimmerFreq) / sampleRate
+            // Update Phase (Shimmer only)
+            phaseShimmer += (twoPi * shimmerSpeed) / sampleRate
             if phaseShimmer > twoPi { phaseShimmer -= twoPi }
             
-            phaseJitter += (twoPi * jitterSpeed) / sampleRate
-            if phaseJitter > twoPi { phaseJitter -= twoPi }
+            // 1. Shimmer (Subtle LFO on Volume)
+            // Sine +/- 0.03
+            let ampMod = 1.0 + (sin(phaseShimmer) * shimmerDepth)
             
-            phaseDrift += (twoPi * driftFreq) / sampleRate
-            if phaseDrift > twoPi { phaseDrift -= twoPi }
-            
-            // 1. Shimmer (Amplitude Wobble)
-            // Sine (8Hz) +/- Depth + Random +/- 3%
-            let sineShimmer = sin(phaseShimmer) * shimmerDepth
-            let randShimmer = Float.random(in: -0.03...0.03)
-            let ampMod = 1.0 + sineShimmer + randShimmer
-            
-            // 2. Jitter (Pitch Wobble) -> Delay Modulation
-            // Sine +/- Depth + Drift +/- 0.8% + Random +/- 0.5%
-            // Depth 1.5% means 0.015 modulation.
-            // Target delay modulation in samples. ~22 samples @ 44.1k for 1.5% pitch shift at 5Hz.
-            let pitchModScaler: Float = 25.0 // Hand-tuned for audible but subtle drift
-            let jitterSig = (sin(phaseJitter) * jitterDepth) + (sin(phaseDrift) * 0.008) + Float.random(in: -0.005...0.005)
-            let delayMod = jitterSig * pitchModScaler
-            let targetDelay = 200.0 + delayMod // Base delay 200 samples (~4.5ms)
-            
-            // 3. Breathiness (LPF Noise)
-            // Simple 1-pole LPF approx 3000Hz (Alpha ~0.3 at 44.1k)
-            let rawNoise = Float.random(in: -1.0...1.0)
-            let lpfAlpha: Float = 0.3
-            let filteredNoise = lastNoise + lpfAlpha * (rawNoise - lastNoise)
-            lastNoise = filteredNoise
-            
-            // Apply to all channels
             for channel in 0..<channelCount {
                 let pData = data[channel]
-                let cleanSample = pData[frame]
+                var sample = pData[frame]
                 
-                // Write to delay buffer for Jitter
-                // (Simple mono delay logic replicated for channels to keep phase coherent or independent?
-                //  Let's share buffer state index but maintain separate buffer arrays if stereo...
-                //  For simplicity/performance in this block, we'll use one buffer for Voice Prompt (usually Mono).
-                //  If stereo, we mix or just process ch0. Let's assume Mono for TTS usually.)
+                // 1. Apply Warmth (Soft Saturation)
+                // (2/pi) * atan(x * drive) -> Smooths harsh digital peaks
+                sample = (2.0 / Float.pi) * atan(sample * warmthDrive)
                 
-                // Safety clamp
-                if delayHead >= delayBuffer.count { delayHead = 0 }
-                delayBuffer[delayHead] = cleanSample
+                // 2. Apply Shimmer (Volume Breath)
+                sample *= ampMod
                 
-                // Read from Delay (Linear Interpolation)
-                var readPos = Float(delayHead) - targetDelay
-                if readPos < 0 { readPos += Float(delayBuffer.count) }
-                
-                let readIdxA = Int(readPos)
-                let readIdxB = (readIdxA + 1) % delayBuffer.count
-                let frac = readPos - Float(readIdxA)
-                
-                let delayedSample = delayBuffer[readIdxA] * (1.0 - frac) + delayBuffer[readIdxB] * frac
-                
-                // Apply Shimmer
-                var processed = delayedSample * ampMod
-                
-                // Apply Breathiness (Gated by signal energy to avoid noise in silence)
-                // Rudimentary gate: if sample is loud enough
-                if abs(processed) > 0.01 {
-                    processed += filteredNoise * breathiness
-                }
-                
-                // 4. Warmth (Soft Saturation)
-                // (2/pi) * atan(x * drive)
-                processed = (2.0 / Float.pi) * atan(processed * warmthDrive)
-                
-                pData[frame] = processed
+                pData[frame] = sample
             }
-            
-            delayHead += 1
-            if delayHead >= delayBuffer.count { delayHead = 0 }
         }
     }
 }
