@@ -33,12 +33,19 @@ The goal is to create a voice agent ("Jenny") for iOS that bypasses standard "ro
 - Iteration 1: "The Radio Host" (Failed)
 - Iteration 3: "Human Presence" (Rejected) - Included excessive harmonic grit and spatial reverb that compromised clarity.
 
-#### **Iteration 4: "Clarity & Snap" (Current/Success)**
-- **Philosophy:** Human speech is mid-forward, not bass-heavy. We need presence, not mud.
-- **Node 1 (Warmth):** Frequency **250Hz**, Gain **+2.0dB**.
-- **Node 2 (Presence):** Frequency **2500Hz**, Gain **+3.0dB**.
-- **Node 3 (Air):** Frequency **8000Hz**, Gain **+2.0dB**.
-- **Pitch/Rate:** Pitch **0 (Neutral)**, Rate **1.03**.
+#### **Iteration 4: "Clarity & Snap" (Base Profile)**
+- **Philosophy:** Human speech is mid-forward. Tuned EQ (250Hz, 2.5kHz, 8kHz) and neutral pitch.
+- **Status:** Active as the foundation.
+
+#### **Iteration 5: "The Humanizer" (Current)**
+- **Goal:** Break the robotic "perfect stability" of the TTS engine.
+- **Technique:** Custom real-time DSP interacting directly with the PCM buffer.
+- **Layers:**
+  1.  **Shimmer (Amplitude Wobble):** 8Hz sine modulation to mimic unsteady lung pressure.
+  2.  **Jitter (Pitch Wobble):** Variable delay line (5Hz) to simulate vocal cord micro-instabilities.
+  3.  **Breathiness:** Injection of low-pass filtered noise (3kHz) when voice is active.
+  4.  **Warmth:** Soft saturation (`atan`) to add harmonic richness.
+- **Dynamic Emotion:** Auto-detects text sentiment ("Excited", "Sad", "Serious") and adjusts DSP parameters on the fly.
 
 ---
 
