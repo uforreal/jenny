@@ -1,0 +1,80 @@
+name: Build Unsigned IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+
+      - name: Bootstrap Flutter Project
+        run: |
+          # Store our custom files
+          mkdir -p temp_config
+          cp lib/main.dart temp_config/
+          cp pubspec.yaml temp_config/
+          cp assets/icon.png temp_config/
+
+          # Force create the project structure
+          flutter create . --platforms ios --project-name jenny
+
+          # Restore our custom files
+          cp temp_config/main.dart lib/
+          cp temp_config/pubspec.yaml ./
+          mkdir -p assets
+          cp temp_config/icon.png assets/
+
+          # Inject Native DSP Engine (Method A)
+          cp overrides/AppDelegate.swift ios/Runner/AppDelegate.swift
+
+          # Inject Info.plist permissions (Mic + Speech)
+          PLIST="ios/Runner/Info.plist"
+          sed -i '' '/<dict>/a\'$'\n''<key>NSMicrophoneUsageDescription</key><string>Jenny needs microphone access for the voice bridge.</string>\'$'\n''<key>NSSpeechRecognitionUsageDescription</key><string>Jenny uses speech recognition to understand you.</string>' $PLIST
+
+      - name: Install Dependencies
+        run: |
+          flutter pub get
+          # Generate icons
+          flutter pub run flutter_launcher_icons
+
+      - name: Build iOS (No Codesign)
+        run: |
+          # This command initializes the iOS build folder and generated files
+          flutter build ios --release --no-codesign
+
+      - name: Manual xcodebuild (Aggressive Signing Bypass)
+        run: |
+          cd ios
+          xcodebuild \
+            -workspace Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath ../build/ios \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER=""
+
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          # The app file location from xcodebuild with derivedDataPath
+          mv build/ios/Build/Products/Release-iphoneos/Runner.app Payload/
+          zip -r Jenny.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jenny-Unsigned-IPA
+          path: Jenny.ipa
