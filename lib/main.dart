@@ -27,12 +27,6 @@ class JennyApp extends StatelessWidget {
   }
 }
 
-class ChatMessage {
-  final String text;
-  final bool isUser;
-  ChatMessage({required this.text, required this.isUser});
-}
-
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
 
@@ -40,49 +34,29 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
-  final List<ChatMessage> _messages = [];
+class _ChatScreenState extends State<ChatScreen> {
+  final List<String> _messages = []; // Simple list for now, user messages only
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  late AnimationController _pulseController;
   
+  // Custom Audio Channel to talk to our Swift DSP Engine
   static const platform = MethodChannel('com.uforreal.jenny/audio');
 
   @override
   void initState() {
     super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat(reverse: true);
-    
-    // Welcome message
-    _messages.add(ChatMessage(text: "Hello. I'm listening. How can I help you today?", isUser: false));
-  }
-  
-  @override
-  void dispose() {
-    _pulseController.dispose();
-    super.dispose();
   }
 
-  void _handleSubmitted(String text) async {
+  void _handleSubmitted(String text) {
     if (text.trim().isEmpty) return;
     
     _textController.clear();
     setState(() {
-      _messages.insert(0, ChatMessage(text: text, isUser: true));
+      _messages.insert(0, text); // Add to start because list is reversed
     });
     
-    // Simulate Jenny's response logic
-    await Future.delayed(const Duration(milliseconds: 500));
-    String response = "I hear you clearly. My 'Human Presence' engine is active. The texture of my voice should feel much more dense and resonant now.";
-    
-    setState(() {
-      _messages.insert(0, ChatMessage(text: response, isUser: false));
-    });
-    
-    _speakNative(response);
+    // Speak using the Native DSP Bridge
+    _speakNative(text);
   }
 
   Future<void> _speakNative(String text) async {
@@ -100,102 +74,53 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       appBar: AppBar(
         flexibleSpace: ClipRect(
           child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
             child: Container(color: Colors.transparent),
           ),
         ),
-        backgroundColor: Colors.black.withOpacity(0.1),
+        backgroundColor: Colors.black.withOpacity(0.2),
         elevation: 0,
         title: const Text(
           'JENNY',
           style: TextStyle(
-            fontWeight: FontWeight.w900,
-            letterSpacing: 4.0,
-            fontSize: 18,
-            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 2.0,
+            fontSize: 20,
           ),
         ),
         centerTitle: true,
-      ),
-      body: Stack(
-        children: [
-          // Background
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFF03001C), Color(0xFF0B1233), Color(0xFF191D52)],
-              ),
-            ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.more_horiz),
+            onPressed: () {}, // Future settings
           ),
-          
-          // The Core (Visual Presence)
-          Positioned(
-            top: 120,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: AnimatedBuilder(
-                animation: _pulseController,
-                builder: (context, child) {
-                  return Container(
-                    width: 100,
-                    height: 100,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF6A11CB).withOpacity(0.3 * _pulseController.value),
-                          blurRadius: 40,
-                          spreadRadius: 20 * _pulseController.value,
-                        ),
-                        BoxShadow(
-                          color: const Color(0xFF2575FC).withOpacity(0.2),
-                          blurRadius: 60,
-                          spreadRadius: 5,
-                        ),
-                      ],
-                      gradient: const RadialGradient(
-                        colors: [Colors.white, Color(0xFF6A11CB), Colors.transparent],
-                        stops: [0.1, 0.5, 1.0],
-                      ),
-                    ),
-                  );
+        ],
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            // A deep, premium midnight gradient
+            colors: [Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)],
+          ),
+        ),
+        child: Column(
+          children: [
+            Expanded(
+              child: ListView.builder(
+                controller: _scrollController,
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
+                reverse: true, // Start from bottom
+                itemCount: _messages.length,
+                itemBuilder: (context, index) {
+                  return _buildMessageBubble(_messages[index]);
                 },
               ),
             ),
-          ),
-
-          Column(
-            children: [
-              const SizedBox(height: 240), // Space for The Core
-              Expanded(
-                child: ShaderMask(
-                  shaderCallback: (rect) {
-                    return const LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Colors.transparent, Colors.black, Colors.black, Colors.transparent],
-                      stops: [0.0, 0.05, 0.95, 1.0],
-                    ).createShader(rect);
-                  },
-                  blendMode: BlendMode.dstIn,
-                  child: ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 100),
-                    reverse: true,
-                    itemCount: _messages.length,
-                    itemBuilder: (context, index) {
-                      return _buildMessageBubble(_messages[index]);
-                    },
-                  ),
-                ),
-              ),
-              _buildInputArea(),
-            ],
-          ),
-        ],
+            _buildInputArea(),
+          ],
+        ),
       ),
     );
   }
@@ -203,37 +128,64 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   Widget _buildInputArea() {
     return ClipRRect(
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.03),
-            border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05))),
+            color: Colors.white.withOpacity(0.05),
+            border: Border(
+              top: BorderSide(color: Colors.white.withOpacity(0.1)),
+            ),
           ),
-          padding: EdgeInsets.fromLTRB(16, 16, 16, 20 + MediaQuery.of(context).padding.bottom),
+          padding: EdgeInsets.fromLTRB(
+            16, 
+            16, 
+            16, 
+            16 + MediaQuery.of(context).padding.bottom // Handle iPhone bottom bar
+          ),
           child: Row(
             children: [
               Expanded(
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.4),
-                    borderRadius: BorderRadius.circular(28),
+                    color: Colors.black.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(25),
                     border: Border.all(color: Colors.white.withOpacity(0.1)),
                   ),
                   child: TextField(
                     controller: _textController,
-                    style: const TextStyle(color: Colors.white, fontSize: 16),
+                    style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
-                      hintText: 'Speak to the core...',
-                      hintStyle: TextStyle(color: Colors.white.withOpacity(0.3)),
+                      hintText: 'Talk to Jenny...',
+                      hintStyle: TextStyle(color: Colors.white.withOpacity(0.4)),
                       border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                     ),
                     onSubmitted: _handleSubmitted,
                   ),
                 ),
               ),
               const SizedBox(width: 12),
-              _buildSendButton(),
+              Container(
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF6A11CB), Color(0xFF2575FC)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF2575FC).withOpacity(0.4),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: IconButton(
+                  icon: const Icon(Icons.arrow_upward, color: Colors.white),
+                  onPressed: () => _handleSubmitted(_textController.text),
+                ),
+              ),
             ],
           ),
         ),
@@ -241,71 +193,41 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildSendButton() {
-    return GestureDetector(
-      onTap: () => _handleSubmitted(_textController.text),
-      child: Container(
-        width: 50,
-        height: 50,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: const LinearGradient(
-            colors: [Color(0xFF6A11CB), Color(0xFF2575FC)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF2575FC).withOpacity(0.4),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: const Icon(Icons.mic_none_rounded, color: Colors.white, size: 28),
-      ),
-    );
-  }
-
-  Widget _buildMessageBubble(ChatMessage message) {
-    final bool isUser = message.isUser;
-    
+  Widget _buildMessageBubble(String text) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
-        mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.end, // User messages align right
         children: [
-          if (!isUser) ...[
-            const CircleAvatar(
-              radius: 12,
-              backgroundColor: Colors.white10,
-              child: Icon(Icons.auto_awesome, size: 12, color: Colors.white54),
-            ),
-            const SizedBox(width: 8),
-          ],
           Flexible(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
               decoration: BoxDecoration(
-                gradient: isUser 
-                    ? const LinearGradient(colors: [Color(0xFF6A11CB), Color(0xFF2575FC)])
-                    : null,
-                color: isUser ? null : Colors.white.withOpacity(0.05),
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(24),
-                  topRight: const Radius.circular(24),
-                  bottomLeft: Radius.circular(isUser ? 24 : 4),
-                  bottomRight: Radius.circular(isUser ? 4 : 24),
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF6A11CB), Color(0xFF2575FC)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-                border: isUser ? null : Border.all(color: Colors.white.withOpacity(0.05)),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(20),
+                  topRight: Radius.circular(4),
+                  bottomLeft: Radius.circular(20),
+                  bottomRight: Radius.circular(20),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 5,
+                    offset: const Offset(2, 2),
+                  ),
+                ],
               ),
               child: Text(
-                message.text,
-                style: TextStyle(
-                  color: isUser ? Colors.white : Colors.white.withOpacity(0.9), 
+                text,
+                style: const TextStyle(
+                  color: Colors.white, 
                   fontSize: 16,
-                  height: 1.4,
-                  fontWeight: isUser ? FontWeight.w500 : FontWeight.w400,
+                  height: 1.3
                 ),
               ),
             ),

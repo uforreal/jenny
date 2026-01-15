@@ -1,7 +1,6 @@
 import UIKit
 import Flutter
 import AVFoundation
-import AudioToolbox
 
 @UIApplicationMain
 @objc class AppDelegate: FlutterAppDelegate {
@@ -10,9 +9,6 @@ import AudioToolbox
     var playerNode: AVAudioPlayerNode!
     var eqNode: AVAudioUnitEQ!
     var pitchNode: AVAudioUnitTimePitch!
-    var distortionNode: AVAudioUnitDistortion!
-    var dynamicsNode: AVAudioUnitEffect! // Changed to generic effect to bypass missing iOS header
-    var reverbNode: AVAudioUnitReverb!
     
     let synthesizer = AVSpeechSynthesizer()
     var isEngineSetup = false
@@ -47,7 +43,7 @@ import AudioToolbox
     func setupAudioSession() {
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .videoChat, options: [.mixWithOthers, .duckOthers, .defaultToSpeaker])
+            try session.setCategory(.playback, mode: .voicePrompt, options: [.mixWithOthers, .duckOthers])
             try session.setActive(true)
         } catch {
             print("Jenny Audio Session Error: \(error)")
@@ -61,83 +57,47 @@ import AudioToolbox
         playerNode = AVAudioPlayerNode()
         eqNode = AVAudioUnitEQ(numberOfBands: 3)
         pitchNode = AVAudioUnitTimePitch()
-        distortionNode = AVAudioUnitDistortion()
-        reverbNode = AVAudioUnitReverb()
         
-        // --- COMPONENT-BASED DYNAMICS (The Build Fix) ---
-        // Since AVAudioUnitDynamicsProcessor is sometimes hidden in iOS headers,
-        // we initialize it via its component description.
-        let desc = AudioComponentDescription(
-            componentType: kAudioUnitType_Effect,
-            componentSubType: kAudioUnitSubType_DynamicsProcessor,
-            componentManufacturer: kAudioUnitManufacturer_Apple,
-            componentFlags: 0,
-            componentFlagsMask: 0
-        )
+        // --- DSP Settings: "Clarity & Snap" Profile ---
         
-        dynamicsNode = AVAudioUnitEffect(audioComponentDescription: desc)
-        
-        // --- DSP Settings: "Human Presence" Profile ---
-        
-        // 1. HARMONIC DENSITY
-        distortionNode.preGain = 2.0
-        distortionNode.wetDryMix = 8.0 
-        
-        // 2. EQUALIZATION
+        // 1. Subtle Warmth (Not Muddy) - 250Hz
         let band1 = eqNode.bands[0]
         band1.filterType = .parametric
         band1.frequency = 250.0
-        band1.bandwidth = 1.0
-        band1.gain = 2.5 
+        band1.bandwidth = 1.5
+        band1.gain = 2.0 // Gentle warmth, not boomy
+        band1.bypass = false
         
+        // 2. Presence Restoration - 2500Hz (The "Clarity" Zone)
         let band2 = eqNode.bands[1]
         band2.filterType = .parametric
-        band2.frequency = 2800.0
-        band2.bandwidth = 0.8
-        band2.gain = 3.5 
+        band2.frequency = 2500.0
+        band2.bandwidth = 1.0
+        band2.gain = 3.0 // Brings voice forward, adds intelligibility
+        band2.bypass = false
         
+        // 3. Breath/Air (The "S" sounds) - 8000Hz
         let band3 = eqNode.bands[2]
         band3.filterType = .highShelf
-        band3.frequency = 8500.0
-        band3.gain = 1.5 
+        band3.frequency = 8000.0
+        band3.gain = 2.0 // Subtle air, not harsh
+        band3.bypass = false
         
-        // 3. SPATIAL GLUE
-        reverbNode.loadFactoryPreset(.smallRoom)
-        reverbNode.wetDryMix = 7.0 
+        // No pitch manipulation - keep it natural
+        pitchNode.pitch = 0.0
+        // Slight speed increase for natural human rhythm
+        pitchNode.rate = 1.03
         
-        // 4. GLUE COMPRESSION (Manual Parameter Mapping)
-        // Parameter IDs for Dynamics Processor: 0:Threshold, 1:Headroom, 2:ExpansionRatio, 3:ExpansionThreshold, 4:AttackTime, 5:ReleaseTime, 6:MasterGain
-        if let au = dynamicsNode.auAudioUnit.fullState, var dict = au as? [String: Any] {
-            // These might not be directly settable via dict depending on SDK, so we use the AUParameterTree if possible
-        }
-        
-        // Fallback to standard parameter tree access
-        if let tree = dynamicsNode.auAudioUnit.parameterTree {
-            tree.parameter(withAddress: 0)?.value = -24.0 // Threshold
-            tree.parameter(withAddress: 1)?.value = 4.0   // Headroom
-            tree.parameter(withAddress: 2)?.value = 3.0   // Expansion Ratio
-            tree.parameter(withAddress: 6)?.value = 2.0   // Master Gain
-        }
-        
-        // 5. PITCH & RATE
-        pitchNode.pitch = -0.5
-        pitchNode.rate = 1.04 
-        
-        // Attach & Connect
         engine.attach(playerNode)
-        engine.attach(pitchNode)
-        engine.attach(distortionNode)
         engine.attach(eqNode)
-        engine.attach(reverbNode)
-        engine.attach(dynamicsNode)
+        engine.attach(pitchNode)
         
+        // Connect Chain
         engine.connect(playerNode, to: pitchNode, format: format)
-        engine.connect(pitchNode, to: distortionNode, format: format)
-        engine.connect(distortionNode, to: eqNode, format: format)
-        engine.connect(eqNode, to: reverbNode, format: format)
-        engine.connect(reverbNode, to: dynamicsNode, format: format)
-        engine.connect(dynamicsNode, to: engine.mainMixerNode, format: format)
+        engine.connect(pitchNode, to: eqNode, format: format)
+        engine.connect(eqNode, to: engine.mainMixerNode, format: format)
         
+        // Ensure volume is up
         playerNode.volume = 1.0
         engine.mainMixerNode.outputVolume = 1.0
         
@@ -145,7 +105,7 @@ import AudioToolbox
             engine.prepare()
             try engine.start()
             isEngineSetup = true
-            print("Jenny Engine: 'Human Presence' active")
+            print("Jenny Engine: Started successfully")
         } catch {
             print("Jenny Engine: Start Error: \(error)")
         }
@@ -153,12 +113,14 @@ import AudioToolbox
     
     func speak(text: String) {
         let utterance = AVSpeechUtterance(string: text)
+        // Try to get a high-quality voice if available
         if let voice = AVSpeechSynthesisVoice(identifier: "com.apple.ttsbundle.samantha-premium") {
             utterance.voice = voice
         } else {
             utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
         }
         
+        // Neural voices usually have a different pitch/rate profile, we'll keep it standard
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
         
         if #available(iOS 13.0, *) {
@@ -172,6 +134,7 @@ import AudioToolbox
                     
                     guard self.isEngineSetup else { return }
                     
+                    // CRITICAL: Removed .interrupts. This allows buffers to queue sequentially.
                     self.playerNode.scheduleBuffer(pcmBuffer, at: nil, options: [], completionHandler: nil)
                     
                     if !self.playerNode.isPlaying {
