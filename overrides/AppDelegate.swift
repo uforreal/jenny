@@ -1,6 +1,7 @@
 import UIKit
 import Flutter
 import AVFoundation
+import AudioToolbox
 
 @UIApplicationMain
 @objc class AppDelegate: FlutterAppDelegate {
@@ -10,7 +11,7 @@ import AVFoundation
     var eqNode: AVAudioUnitEQ!
     var pitchNode: AVAudioUnitTimePitch!
     var distortionNode: AVAudioUnitDistortion!
-    var dynamicsNode: AVAudioUnitDynamicsProcessor!
+    var dynamicsNode: AVFoundation.AVAudioUnitDynamicsProcessor!
     var reverbNode: AVAudioUnitReverb!
     
     let synthesizer = AVSpeechSynthesizer()
@@ -61,7 +62,7 @@ import AVFoundation
         eqNode = AVAudioUnitEQ(numberOfBands: 3)
         pitchNode = AVAudioUnitTimePitch()
         distortionNode = AVAudioUnitDistortion()
-        dynamicsNode = AVAudioUnitDynamicsProcessor()
+        dynamicsNode = AVFoundation.AVAudioUnitDynamicsProcessor()
         reverbNode = AVAudioUnitReverb()
         
         // --- DSP Settings: "Human Presence" Profile ---
